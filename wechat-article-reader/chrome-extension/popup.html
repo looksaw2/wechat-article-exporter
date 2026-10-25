@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>微信文章本地导出</title>
+  <link rel="stylesheet" href="popup.css">
+  <script src="popup.js" defer></script>
+</head>
+<body>
+  <header>
+    <img src="icons/48.png" alt="" width="32" height="32">
+    <div><h1>微信文章本地导出</h1><p>保存当前页面，留在本机</p></div>
+  </header>
+  <p class="hint">先在当前标签页打开文章并完成验证，再预览或导出。</p>
+  <div class="actions">
+    <button id="preview-button" type="button">预览正文</button>
+    <button id="export-button" class="primary" type="button">导出 Markdown</button>
+  </div>
+  <p id="status" role="status" aria-live="polite">等待操作。</p>
+  <section id="preview" hidden>
+    <h2 id="article-title"></h2>
+    <p id="article-meta"></p>
+    <label for="markdown">Markdown 预览（可在保存前编辑）</label>
+    <textarea id="markdown" spellcheck="false" rows="16"></textarea>
+  </section>
+  <footer>图片保留原链接。仅访问你点击的当前页面。</footer>
+</body>
+</html>

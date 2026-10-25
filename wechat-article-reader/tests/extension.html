@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; connect-src 'none'; img-src 'none'">
+  <title>Local extension checks</title>
+  <script src="../chrome-extension/article.js"></script>
+</head>
+<body><pre id="results">pending</pre>
+<script>
+(() => {
+  const exporter = globalThis.WechatArticleExporter;
+  const checks = [];
+  const url = 'https://mp.weixin.qq.com/s/local-fixture';
+  const doc = (html) => new DOMParser().parseFromString(html, 'text/html');
+  const extract = (body, meta = '') => exporter.extract(doc(meta + '<div id="js_content">' + body + '</div>'), url);
+  const assert = (value, message) => { if (!value) throw new Error(message); };
+  const check = (name, run) => {
+    try { run(); checks.push({name, passed: true}); }
+    catch (error) { checks.push({name, passed: false, error: error.message}); }
+  };
+  const rejects = (fn) => { try { fn(); } catch { return true; } return false; };
+  check('article metadata: account and author are distinct', () => {
+    const a = extract('<p>正文</p>', '<h1 id="activity-name">示例文章</h1><span id="js_name">示例公众号</span><span id="js_author_name">张三</span><span id="publish_time">2026-10-25</span>');
+    assert(a.account === '示例公众号' && a.author === '张三' && a.publishedAt === '2026-10-25', a.markdown);
+    assert(a.markdown.includes('公众号：示例公众号') && a.markdown.includes('作者：张三'), a.markdown);
+  });
+  check('paragraphs, nested inline whitespace, entities', () => {
+    const a = extract('<p><span>Hello </span><span><b>world</b></span> &amp; A&lt;B<br>第二行</p><p>第二段</p>');
+    assert(a.markdown.includes('Hello **world** &amp; A&lt;B  \n第二行\n\n第二段'), a.markdown);
+  });
+  check('nested ordered and unordered lists', () => {
+    const a = extract('<ol start="3"><li>一级<ul><li>二级</li><li>另一个</li></ul></li><li>下一个</li></ol>');
+    assert(a.markdown.includes('3. 一级\n\n   - 二级\n   - 另一个\n4. 下一个'), a.markdown);
+  });
+  check('heading and quote', () => {
+    const a = extract('<h2>小节</h2><blockquote><p>引用一</p><p>引用二</p></blockquote>');
+    assert(a.markdown.includes('## 小节\n\n> 引用一\n>\n> 引用二'), a.markdown);
+  });
+  check('code whitespace and fences preserved', () => {
+    const a = extract('<pre><code class="language-python">if True:\n    print("```")\n</code></pre><p><code>a`b</code></p>');
+    assert(a.markdown.includes('````python\nif True:\n    print("```")\n````'), a.markdown);
+    assert(a.markdown.includes('``a`b``'), a.markdown);
+  });
+  check('table columns, escaped pipes, line breaks', () => {
+    const a = extract('<table><tr><th>A</th><th>B</th></tr><tr><td>x|y</td><td>一<br>二</td></tr></table>');
+    assert(a.markdown.includes('| x\\|y | 一<br>二 |'), a.markdown);
+  });
+  check('lazy images and safe links are retained', () => {
+    const a = extract('<p><a href="https://example.com/a(b)">链接</a><img data-src="https://example.com/image.jpg" alt="图一"></p>');
+    assert(a.markdown.includes('[链接](<https://example.com/a(b)>)') && a.markdown.includes('![图一](<https://example.com/image.jpg>)'), a.markdown);
+  });
+  check('dangerous URLs, scripts and hidden nodes excluded', () => {
+    const a = extract('<p>正常<a href="javascript:alert(1)">文本</a></p><script>secret_script</' + 'script><p style="display:none">secret_hidden</p><img src="data:image/png,anything">');
+    assert(!a.markdown.includes('javascript:') && !a.markdown.includes('secret_') && !a.markdown.includes('data:image'), a.markdown);
+  });
+  check('captcha page missing article is rejected', () => {
+    assert(rejects(() => exporter.extract(doc('<h1>请完成验证</h1>'), url)), 'accepted verification page');
+  });
+  check('empty and hidden content are rejected', () => {
+    assert(rejects(() => extract('<p> </p>')), 'accepted empty article');
+    assert(rejects(() => exporter.extract(doc('<div hidden><div id="js_content">隐藏</div></div>'), url)), 'accepted hidden article');
+  });
+  check('image-only article and missing metadata supported', () => {
+    const a = extract('<img data-src="https://example.com/image.jpg">');
+    assert(a.title === '微信文章' && a.markdown.includes('![图片]'), a.markdown);
+  });
+  check('source omits session tokens and allows long article URL', () => {
+    const source = exporter.sourceURL('https://mp.weixin.qq.com/s?__biz=abc&mid=12&idx=1&sn=abc&pass_ticket=SECRET&scene=9#token');
+    assert(source.includes('__biz=abc') && !source.includes('SECRET') && !source.includes('scene=') && !source.includes('#'), source);
+  });
+  check('unsupported website is rejected', () => {
+    assert(rejects(() => exporter.extract(doc('<div id="js_content">text</div>'), 'https://example.com/s/anything')), 'accepted unsupported domain');
+  });
+  check('safe unicode filenames', () => {
+    assert(exporter.filename('CON') === '_CON.md', 'reserved filename');
+    assert(exporter.filename('../标题:问题?') === '_标题_问题_.md', exporter.filename('../标题:问题?'));
+    assert(exporter.filename('') === '微信文章.md', 'empty filename');
+  });
+  document.getElementById('results').textContent = JSON.stringify({passed: checks.filter((x) => x.passed).length, total: checks.length, checks});
+})();
+</script></body>
+</html>
